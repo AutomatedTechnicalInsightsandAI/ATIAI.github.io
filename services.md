@@ -1,19 +1,17 @@
 ---
 layout: page
-title: Professional Services
+title: Solutions
 ---
 
-## 🏗️ Technical Design & Engineering
-Leveraging my background in Electrical Engineering to provide high-end design solutions.
-* **AutoCAD & Revit:** Professional drafting for mechanical and electrical systems.
-* **Orthographic Projections:** Technical part drawings and viewport scaling.
+## Technical Consultation
+ATI & AI provides high-level oversight for businesses looking to modernize their technical infrastructure without overhauling their entire budget.
 
-## 🤖 Automated Technical Insights & AI
-Custom Python-driven solutions to optimize business workflows.
-* **VMS Mastery:** Expert platform integration and management.
-* **Data Automation:** Custom scripts for financial analysis and system monitoring.
+### Merchant Services
+* POS System Audits
+* Payment Processing Optimization (Beacon Payments)
+* Transaction Security & Compliance
 
-## 💳 Payment Solutions (Beacon Payments)
-As an Independent Sales Representative (ISR), I help businesses reduce overhead and scale.
-* **Payment Processing:** Secure, efficient merchant services.
-* **Cost Reduction:** Strategic analysis of current payment infrastructures.
+### Security Infrastructure
+* VMS Integration & Maintenance
+* Hardware Reliability Assessment
+* **Next-Gen Security:** Ask about our upcoming AI-Model deployment for existing camera systems.

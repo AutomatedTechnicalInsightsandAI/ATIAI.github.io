@@ -3,16 +3,24 @@ layout: default
 title: Home
 ---
 
-# Automated Technical Insights & AI
-### Expert VMS Solutions | Strategic Business Growth
+# ATI & AI
+### Advanced Infrastructure & Technical Intelligence
 
-Helping partners master VMS platforms and drive long-term profitability through automated data insights and strategic system integration.
+Strategic operational solutions for modern facilities and commerce. We bridge the gap between existing hardware and next-generation intelligence.
 
 ---
 
-## Core Expertise
-* **Automated Insights:** Streamlining technical data for better decision-making.
-* **Strategic Growth:** Identifying cost-saving opportunities in your technical infrastructure.
-* **VMS Mastery:** Expert-level management of complex VMS platforms.
+## Core Focus Areas
 
-[View our Services](/services) | [Contact Us](/contact)
+### 💳 Merchant POS Solutions
+Strategic payment infrastructure management. We specialize in optimizing Point-of-Sale ecosystems to reduce overhead and streamline transaction flow through Beacon Payments.
+
+### 🔌 VMS Integration & Maintenance
+Comprehensive management of Video Management Systems. We ensure your existing security hardware remains reliable, optimized, and ready for future scaling.
+
+### 👁️ Intelligence Layer (Coming Soon)
+Our proprietary AI integration model. We are developing the capability to transform existing camera systems into proactive security networks, bringing advanced computer vision to legacy hardware.
+
+---
+
+[Explore Solutions](/services) | [Inquiry Portal](/contact)

@@ -1,6 +1,5 @@
 ---
 layout: default
-title: ATI & AI
 ---
 
 <div class="custom-header">

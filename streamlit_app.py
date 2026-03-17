@@ -8,6 +8,10 @@ MAX_LINKS_TO_CHECK = 10
 st.set_page_config(page_title="Free SEO Audit Tool | ATI & AI", page_icon="🔍")
 
 st.title("🔍 Free SEO Audit Tool")
+
+# Link to your full hosted app
+st.link_button("🚀 Open Full Streamlit App", "https://automatedtechnicalinsightsandaiappio-csbpdxg8nrnc5nfp3v9nmn.streamlit.app")
+
 st.markdown(
     "Uncover low-hanging SEO opportunities for your website. "
     "Enter your URL below to get instant insights on meta tags, "
@@ -20,7 +24,6 @@ keyword = st.text_input(
     placeholder="e.g., AI tools for SEO",
 )
 run_audit = st.button("Run SEO Audit")
-
 
 HEADERS = {"User-Agent": "ATI-SEO-AuditBot/1.0 (+https://automatedtechnicalinsightsandai.github.io)"}
 

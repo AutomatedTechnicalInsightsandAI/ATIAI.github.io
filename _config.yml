@@ -1,4 +1,7 @@
 
 title: ATI & AI
-description: Automated Technical Insights & Artificial Intelligence
+description: Advanced Technical Insights & Artificial Intelligence
+# We keep the theme for backend tools but will override the layout
 remote_theme: pages-themes/midnight@v0.2.0
+# This empty layout setting helps remove default theme headers
+layout: null 

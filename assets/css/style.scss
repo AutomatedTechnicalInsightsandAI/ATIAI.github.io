@@ -2,57 +2,35 @@
 ---
 @import 'jekyll-theme-midnight';
 
-/* Corporate Deep Navy Theme */
-:root {
-    --bg-navy: #0a192f;
-    --bg-card: #112240;
-    --accent-blue: #007bff;
-    --accent-glow: rgba(0, 123, 255, 0.6);
-    --text-bright: #e6f1ff;
-    --text-dim: #8892b0;
-    --white: #ffffff;
-}
-
+/* Force Navy Background & Bright Text */
 body {
-    background-color: var(--bg-navy) !important;
-    color: var(--text-bright) !important;
-    font-family: 'Inter', -apple-system, sans-serif;
+    background-color: #0a192f !important;
+    color: #e6f1ff !important;
+    margin: 0;
+    padding: 0;
 }
 
-/* Fix for the hard-to-read dark text */
-p, li, span, h1, h2, h3 {
-    color: var(--text-bright) !important;
+/* Kill the default theme's "View on GitHub" and Header */
+header, .github-button, #downloads {
+    display: none !important;
+    visibility: hidden !important;
 }
 
-/* Modern Button with Hover Shadow */
-.btn-modern {
-    background-color: var(--accent-blue);
-    color: var(--white) !important;
-    padding: 14px 28px;
-    border-radius: 8px;
-    text-decoration: none;
-    font-weight: 700;
-    display: inline-flex;
-    align-items: center;
-    transition: all 0.3s ease;
-    border: none;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+/* Create our own Premium Blue Header */
+.custom-header {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    border-bottom: 3px solid #007bff;
+    padding: 60px 20px;
+    text-align: center;
 }
 
-.btn-modern:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 10px 20px var(--accent-glow);
-    background-color: #0056b3;
+.custom-header h1 {
+    color: #007bff !important;
+    font-size: 3.5rem !important;
+    margin: 0;
 }
 
-/* Solution Card Styling */
-.solution-card {
-    background: var(--bg-card);
-    border: 1px solid #233554;
-    padding: 30px;
-    border-radius: 12px;
-    margin-bottom: 20px;
+.custom-header p {
+    color: #8892b0 !important;
+    font-size: 1.3rem;
 }
-
-/* Remove the default GitHub header button */
-.btn.github-button { display: none !important; }

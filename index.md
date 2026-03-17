@@ -1,25 +1,19 @@
 ---
 layout: default
+title: Home
 ---
 
-<div class="custom-header">
-    <h1>ATI & AI</h1>
-    <p>Advanced Infrastructure & Strategic Intelligence</p>
-</div>
+## Strategic Solutions
+ATI & AI bridges the gap between legacy hardware and modern intelligence.
 
-<div style="max-width: 900px; margin: 40px auto; padding: 0 20px;">
-    <div style="background: #112240; border: 1px solid #233554; padding: 30px; border-radius: 12px; margin-bottom: 25px;">
-        <h2 style="color: #007bff !important;">Merchant POS Optimization</h2>
-        <p>Strategic merchant services auditing and POS system integration. We partner with <strong>Beacon Payments</strong> to fortify transaction security.</p>
-    </div>
+### 💳 Merchant POS Optimization
+We audit and optimize payment ecosystems through **Beacon Payments** to reduce overhead and secure transaction flow.
 
-    <div style="background: #112240; border: 1px solid #233554; padding: 30px; border-radius: 12px; margin-bottom: 25px;">
-        <h2 style="color: #007bff !important;">VMS Lifecycle Management</h2>
-        <p>Advanced Video Management System integration. We synchronize complex security hardware with modern protocols to ensure operational continuity.</p>
-    </div>
+### 🔌 VMS Lifecycle Management
+Advanced integration and synchronization for mission-critical Video Management Systems.
 
-    <div style="background: #112240; border: 1px solid #a855f7; padding: 30px; border-radius: 12px;">
-        <h2 style="color: #a855f7 !important;">Proprietary AI Integration (R&D)</h2>
-        <p>Transforming passive monitoring into proactive security networks via deep-learning computer vision models.</p>
-    </div>
-</div>
+### 👁️ Intelligence Layer (R&D)
+Developing deep-learning computer vision models to transform passive camera monitoring into active security intelligence.
+
+---
+[Contact the Portal](/contact)

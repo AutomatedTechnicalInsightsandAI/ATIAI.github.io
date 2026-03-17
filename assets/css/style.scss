@@ -2,35 +2,34 @@
 ---
 @import 'jekyll-theme-midnight';
 
-/* Force Navy Background & Bright Text */
+/* Fix Readability for Midnight Theme */
 body {
-    background-color: #0a192f !important;
     color: #e6f1ff !important;
-    margin: 0;
-    padding: 0;
 }
 
-/* Kill the default theme's "View on GitHub" and Header */
-header, .github-button, #downloads {
+h1, h2, h3, p, li {
+    color: #e6f1ff !important;
+}
+
+/* Relocate/Hide the default GitHub Button on Home */
+.github-button {
     display: none !important;
-    visibility: hidden !important;
 }
 
-/* Create our own Premium Blue Header */
-.custom-header {
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-    border-bottom: 3px solid #007bff;
-    padding: 60px 20px;
-    text-align: center;
+/* Custom Buttons with Hover Effects */
+.btn-modern {
+    background-color: #007bff;
+    color: #ffffff !important;
+    padding: 12px 24px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: bold;
+    display: inline-flex;
+    align-items: center;
+    transition: all 0.3s ease;
 }
 
-.custom-header h1 {
-    color: #007bff !important;
-    font-size: 3.5rem !important;
-    margin: 0;
-}
-
-.custom-header p {
-    color: #8892b0 !important;
-    font-size: 1.3rem;
+.btn-modern:hover {
+    box-shadow: 0 0 15px rgba(0, 123, 255, 0.6);
+    transform: translateY(-2px);
 }

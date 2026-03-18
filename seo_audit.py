@@ -2,7 +2,9 @@
 Comprehensive SEO audit engine.
 """
 
+import ipaddress
 import logging
+import socket
 import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin, urlparse
@@ -19,13 +21,62 @@ HEADERS = {
 }
 REQUEST_TIMEOUT = 12
 
+# Schemes we are willing to fetch
+_ALLOWED_SCHEMES = {"http", "https"}
+
+
+# ---------------------------------------------------------------------------
+# SSRF protection
+# ---------------------------------------------------------------------------
+
+def _is_safe_url(url: str) -> bool:
+    """
+    Return True only when *url* targets a public, routable host.
+
+    Rejects:
+    - Non-http(s) schemes
+    - Loopback, link-local, private, and other reserved IP ranges
+    - Bare hostnames that resolve to such addresses
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in _ALLOWED_SCHEMES:
+        return False
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+    # Block obvious localhost variants
+    if hostname.lower() in {"localhost", "ip6-localhost", "ip6-loopback"}:
+        return False
+    try:
+        # Resolve to IP and check for private/reserved ranges
+        addr_info = socket.getaddrinfo(hostname, None)
+        for _family, _type, _proto, _canonname, sockaddr in addr_info:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if (
+                ip.is_loopback
+                or ip.is_private
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_multicast
+                or ip.is_unspecified
+            ):
+                logger.warning("Blocked SSRF attempt to %s (%s)", url, ip)
+                return False
+    except (socket.gaierror, ValueError):
+        # DNS failure or invalid IP — block it to be safe
+        return False
+    return True
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _safe_get(url: str, timeout: int = REQUEST_TIMEOUT) -> Optional[requests.Response]:
-    """Perform a GET request; return None on any failure."""
+    """Perform a GET request; return None on any failure or unsafe URL."""
+    if not _is_safe_url(url):
+        logger.warning("Skipping unsafe URL: %s", url)
+        return None
     try:
         resp = requests.get(url, headers=HEADERS, timeout=timeout, allow_redirects=True)
         return resp
@@ -35,7 +86,10 @@ def _safe_get(url: str, timeout: int = REQUEST_TIMEOUT) -> Optional[requests.Res
 
 
 def _safe_head(url: str, timeout: int = 6) -> Optional[requests.Response]:
-    """Perform a HEAD request falling back to GET on 405."""
+    """Perform a HEAD request (falling back to GET on 405) for safe URLs only."""
+    if not _is_safe_url(url):
+        logger.warning("Skipping unsafe URL: %s", url)
+        return None
     try:
         resp = requests.head(url, headers=HEADERS, timeout=timeout, allow_redirects=True)
         if resp.status_code == 405:
@@ -512,6 +566,19 @@ def run_full_audit(url: str, keyword: Optional[str] = None) -> Dict[str, Any]:
       score, url, timestamp, checks, summary, categories, page_info
     """
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    # ---- Validate URL before any network activity ----------------------
+    if not _is_safe_url(url):
+        return {
+            "score": 0,
+            "url": url,
+            "timestamp": timestamp,
+            "error": "URL rejected: must be a publicly accessible http/https address.",
+            "checks": [],
+            "summary": {"total": 0, "passed": 0, "warnings": 0, "failed": 0, "score": 0},
+            "categories": {},
+            "page_info": {},
+        }
 
     # ---- Fetch the page ------------------------------------------------
     start = time.time()

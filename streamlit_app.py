@@ -2782,6 +2782,11 @@ elif active == "campaign_mgmt":
                         )
 
     with tab_update:
+        if "campaign_update_success" not in st.session_state:
+            st.session_state.campaign_update_success = False
+        if "last_updated_campaign_id" not in st.session_state:
+            st.session_state.last_updated_campaign_id = None
+
         campaigns = _db.get_all_campaigns()
         if not campaigns:
             st.info("No campaigns yet.")
@@ -2789,17 +2794,29 @@ elif active == "campaign_mgmt":
             camp_options = {c["campaign_name"]: c["id"] for c in campaigns}
             sel_camp_name = st.selectbox("Select Campaign", list(camp_options.keys()))
             sel_camp_id = camp_options[sel_camp_name]
+
+            camp = _db.get_campaign(sel_camp_id)
+            current_reach = int(camp.get("actual_reach") or 0) if camp else 0
+            current_impressions = int(camp.get("impressions") or 0) if camp else 0
+            current_clicks = int(camp.get("clicks") or 0) if camp else 0
+            current_conversions = int(camp.get("conversions") or 0) if camp else 0
+            current_revenue = float(camp.get("revenue") or 0.0) if camp else 0.0
+            current_status = camp.get("status", "draft") if camp else "draft"
+
+            status_options = ["", "draft", "active", "paused", "completed"]
+            status_index = status_options.index(current_status) if current_status in status_options else 1
+
             with st.form("update_metrics_form"):
                 u_col1, u_col2 = st.columns(2)
                 with u_col1:
-                    u_reach = st.number_input("Actual Reach", min_value=0, value=0)
-                    u_impressions = st.number_input("Impressions", min_value=0, value=0)
-                    u_clicks = st.number_input("Clicks", min_value=0, value=0)
+                    u_reach = st.number_input("Actual Reach", min_value=0, value=current_reach)
+                    u_impressions = st.number_input("Impressions", min_value=0, value=current_impressions)
+                    u_clicks = st.number_input("Clicks", min_value=0, value=current_clicks)
                 with u_col2:
-                    u_conversions = st.number_input("Conversions", min_value=0, value=0)
-                    u_revenue = st.number_input("Revenue Generated ($)", min_value=0.0, value=0.0)
+                    u_conversions = st.number_input("Conversions", min_value=0, value=current_conversions)
+                    u_revenue = st.number_input("Revenue Generated ($)", min_value=0.0, value=current_revenue)
                     u_status = st.selectbox(
-                        "Update Status", ["", "draft", "active", "paused", "completed"]
+                        "Update Status", status_options, index=status_index
                     )
                 u_submit = st.form_submit_button("✅ Update Campaign", type="primary")
                 if u_submit:
@@ -2812,7 +2829,19 @@ elif active == "campaign_mgmt":
                         revenue=u_revenue or None,
                         status=u_status or None,
                     )
-                    st.success(f"✅ Campaign '{sel_camp_name}' updated.")
+                    st.session_state.campaign_update_success = True
+                    st.session_state.last_updated_campaign_id = sel_camp_id
+                    st.rerun()
+
+            if (
+                st.session_state.campaign_update_success
+                and st.session_state.last_updated_campaign_id == sel_camp_id
+            ):
+                st.success(f"✅ Campaign '{sel_camp_name}' updated successfully!")
+                if st.button("✅ Dismiss"):
+                    st.session_state.campaign_update_success = False
+                    st.session_state.last_updated_campaign_id = None
+                    st.rerun()
 
 # ── Service: Influencer Scorecard ─────────────────────────────────────────────
 elif active == "influencer_scorecard":

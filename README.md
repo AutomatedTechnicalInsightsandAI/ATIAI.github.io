@@ -191,6 +191,39 @@ Sends a branded HTML email with the PDF and HTML dashboard as attachments. Retur
 
 ---
 
+## Roadmap — What to Do Next
+
+Below is a prioritised list of improvements. Items higher in the list have more immediate impact.
+
+### 🔴 High priority
+
+| # | Task | Why it matters |
+|---|---|---|
+| 1 | **Change `ADMIN_PASSWORD`** — update the default value (`admin123`) in your deployment secrets | The default password is public knowledge and must be changed before production use |
+| 2 | **Configure email delivery** — set `EMAIL_SENDER` and `EMAIL_PASSWORD` in Streamlit Cloud secrets | Without this, audit reports are generated but never delivered to customers |
+| 3 | **Persistent database** — the SQLite file resets on every Streamlit Cloud deployment; consider [Supabase](https://supabase.com) (free tier, Postgres) or [Streamlit Community Cloud file persistence](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/file-storage) | Without persistence, audit history and analytics are lost on each redeploy |
+
+### 🟡 Medium priority
+
+| # | Task | Why it matters |
+|---|---|---|
+| 4 | **Add a Portfolio page** (`portfolio.md`) — the navigation already has a "Portfolio" link pointing to `/portfolio` but the page doesn't exist yet | Clicking Portfolio in the site nav currently 404s |
+| 5 | **Rate limiting on the audit form** — a single IP can currently spam unlimited audit requests; add a per-session or per-email cooldown | Protects the Streamlit Cloud resource quota and prevents abuse |
+| 6 | **Unit tests** — add a `tests/` directory with `pytest` tests for `seo_audit.py` (at minimum: SSRF rejection, scoring algorithm, check categories) | Catches regressions when editing the audit engine |
+| 7 | **CAPTCHA / bot protection** on the audit form | Prevents automated form submissions |
+
+### 🟢 Lower priority / future ideas
+
+| # | Task | Notes |
+|---|---|---|
+| 8 | **Intelligence Layer page** — flesh out the R&D computer vision project with technical details and a progress update | Currently only mentioned in passing on the homepage |
+| 9 | **Webhook / Zapier integration** — send a notification to Slack or email when a new audit is submitted | Useful once request volume increases |
+| 10 | **Audit comparison view** — let customers compare two audit results side-by-side (re-audit a URL after making fixes) | High-value UX feature that demonstrates improvement over time |
+| 11 | **Export analytics to CSV** — add a download button in the Monthly Analytics tab | Makes reporting easier for client calls |
+| 12 | **Dark/light theme toggle** on the Jekyll GitHub Pages site | Accessibility improvement |
+
+---
+
 ## License
 
 © ATI & AI. All rights reserved.

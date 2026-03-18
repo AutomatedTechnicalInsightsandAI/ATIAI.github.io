@@ -2782,30 +2782,158 @@ elif active == "instant_audit":
                 )
                 st.line_chart(df_growth.set_index("Day")["Followers"])
 
-            g_col1, g_col2, g_col3 = st.columns(3)
-            g_col1.metric("30-Day Growth", f"{results['growth_30d']:.1f}%")
-            g_col2.metric("60-Day Growth", f"{results['growth_60d']:.1f}%")
-            g_col3.metric("90-Day Growth", f"{results['growth_90d']:.1f}%")
+    with tab_list:
+        if st.session_state.get("delete_success_msg"):
+            st.success(st.session_state.pop("delete_success_msg"))
+        campaigns = _db.get_all_campaigns()
+        if not campaigns:
+            st.info("No campaigns yet. Create one in the 'New Campaign' tab.")
+        else:
+            for camp in campaigns:
+                with st.expander(
+                    f"📣 {camp['campaign_name']} — {camp['status'].title()} "
+                    f"| Budget: ${camp['budget']:,.0f}"
+                ):
+                    perf = build_campaign_performance(
+                        campaign_name=camp["campaign_name"],
+                        budget=camp.get("budget", 0),
+                        reach=camp.get("actual_reach", 0),
+                        impressions=camp.get("impressions", 0),
+                        clicks=camp.get("clicks", 0),
+                        conversions=camp.get("conversions", 0),
+                        revenue=camp.get("revenue", 0),
+                        start_date=camp.get("start_date", ""),
+                        end_date=camp.get("end_date", ""),
+                    )
+                    col_a, col_b, col_c, col_d, col_e = st.columns(5)
+                    col_a.metric("Reach", f"{perf['reach']:,}")
+                    col_b.metric("Impressions", f"{perf['impressions']:,}")
+                    col_c.metric("CTR", f"{perf['ctr']:.2f}%")
+                    col_d.metric("Conversions", f"{perf['conversions']:,}")
+                    col_e.metric(
+                        "ROI",
+                        f"{perf['roi']:.1f}%",
+                        delta=f"{perf['roi']:.1f}%",
+                        delta_color="normal",
+                    )
 
-        with tab_recs:
-            st.markdown("**AI-Driven Recommendations**")
-            for rec in results["recommendations"]:
-                st.markdown(rec)
-            st.info(
-                "💡 Data shown is AI-estimated for demo purposes. "
-                "Connect a live Instagram API for real-time data."
-            )
+                    influencers_in_camp = _db.get_campaign_influencers(camp["id"])
+                    col_dl, col_del = st.columns([3, 1])
+                    with col_dl:
+                        if st.button(
+                            f"📊 Download HTML Report",
+                            key=f"dl_camp_{camp['id']}"
+                        ):
+                            html = generate_campaign_roi_report(camp, influencers_in_camp)
+                            st.download_button(
+                                "⬇️ Save Report",
+                                data=html,
+                                file_name=f"campaign_{camp['id']}_report.html",
+                                mime="text/html",
+                                key=f"save_camp_{camp['id']}",
+                            )
+                    with col_del:
+                        if st.button(
+                            "🗑️ Delete",
+                            key=f"del_camp_{camp['id']}",
+                            help="Permanently delete this campaign",
+                        ):
+                            st.session_state[f"confirm_delete_{camp['id']}"] = True
 
-        # Download audit report
-        if st.button("📥 Generate Audit Report"):
-            import json
-            report_data = json.dumps(results, indent=2, default=str)
-            st.download_button(
-                label="⬇️ Download JSON Report",
-                data=report_data,
-                file_name=f"audit_{clean_name}.json",
-                mime="application/json",
-            )
+                    if st.session_state.get(f"confirm_delete_{camp['id']}"):
+                        st.warning(
+                            f"⚠️ Are you sure you want to delete "
+                            f"**'{camp['campaign_name']}'**? This cannot be undone."
+                        )
+                        col_yes, col_no = st.columns(2)
+                        with col_yes:
+                            if st.button(
+                                "✅ Yes, Delete",
+                                key=f"confirm_yes_{camp['id']}",
+                            ):
+                                _db.delete_campaign(camp["id"])
+                                st.session_state.pop(
+                                    f"confirm_delete_{camp['id']}", None
+                                )
+                                st.session_state["delete_success_msg"] = (
+                                    f"✅ Campaign '{camp['campaign_name']}' deleted."
+                                )
+                                st.rerun()
+                        with col_no:
+                            if st.button(
+                                "❌ Cancel",
+                                key=f"confirm_no_{camp['id']}",
+                            ):
+                                st.session_state.pop(
+                                    f"confirm_delete_{camp['id']}", None
+                                )
+                                st.rerun()
+
+    with tab_update:
+        if st.session_state.get("delete_success_msg"):
+            st.success(st.session_state.pop("delete_success_msg"))
+        campaigns = _db.get_all_campaigns()
+        if not campaigns:
+            st.info("No campaigns yet.")
+        else:
+            camp_options = {c["campaign_name"]: c["id"] for c in campaigns}
+            sel_camp_name = st.selectbox("Select Campaign", list(camp_options.keys()))
+            sel_camp_id = camp_options[sel_camp_name]
+            with st.form("update_metrics_form"):
+                u_col1, u_col2 = st.columns(2)
+                with u_col1:
+                    u_reach = st.number_input("Actual Reach", min_value=0, value=0)
+                    u_impressions = st.number_input("Impressions", min_value=0, value=0)
+                    u_clicks = st.number_input("Clicks", min_value=0, value=0)
+                with u_col2:
+                    u_conversions = st.number_input("Conversions", min_value=0, value=0)
+                    u_revenue = st.number_input("Revenue Generated ($)", min_value=0.0, value=0.0)
+                    u_status = st.selectbox(
+                        "Update Status", ["", "draft", "active", "paused", "completed"]
+                    )
+                col_update, col_delete = st.columns(2)
+                with col_update:
+                    u_submit = st.form_submit_button("✅ Update Campaign", type="primary")
+                with col_delete:
+                    u_delete = st.form_submit_button("🗑️ Delete Campaign", type="secondary")
+                if u_submit:
+                    _db.update_campaign_metrics(
+                        campaign_id=sel_camp_id,
+                        actual_reach=u_reach or None,
+                        impressions=u_impressions or None,
+                        clicks=u_clicks or None,
+                        conversions=u_conversions or None,
+                        revenue=u_revenue or None,
+                        status=u_status or None,
+                    )
+                    st.success(f"✅ Campaign '{sel_camp_name}' updated.")
+                if u_delete:
+                    st.session_state["pending_delete_campaign_id"] = sel_camp_id
+                    st.session_state["pending_delete_campaign_name"] = sel_camp_name
+                    st.rerun()
+
+            if st.session_state.get("pending_delete_campaign_id"):
+                pending_id = st.session_state["pending_delete_campaign_id"]
+                pending_name = st.session_state["pending_delete_campaign_name"]
+                st.warning(
+                    f"⚠️ Are you sure you want to delete **'{pending_name}'**? "
+                    "This cannot be undone."
+                )
+                col_yes, col_no = st.columns(2)
+                with col_yes:
+                    if st.button("✅ Yes, Delete", key="confirm_del_campaign"):
+                        _db.delete_campaign(pending_id)
+                        st.session_state.pop("pending_delete_campaign_id", None)
+                        st.session_state.pop("pending_delete_campaign_name", None)
+                        st.session_state["delete_success_msg"] = (
+                            f"✅ Campaign '{pending_name}' deleted."
+                        )
+                        st.rerun()
+                with col_no:
+                    if st.button("❌ Cancel", key="cancel_del_campaign"):
+                        st.session_state.pop("pending_delete_campaign_id", None)
+                        st.session_state.pop("pending_delete_campaign_name", None)
+                        st.rerun()
 
 # ── Service: Influencer Scorecard ─────────────────────────────────────────────
 elif active == "influencer_scorecard":

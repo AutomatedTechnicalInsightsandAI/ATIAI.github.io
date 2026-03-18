@@ -81,6 +81,10 @@ if "audit_history" not in st.session_state:
     st.session_state.audit_history = []
 if "admin_auth" not in st.session_state:
     st.session_state.admin_auth = False
+if "ab_history" not in st.session_state:
+    st.session_state.ab_history = []
+if "revenue_projections" not in st.session_state:
+    st.session_state.revenue_projections = {}
 
 
 # ── Advanced SEO Check Helpers ─────────────────────────────────────────────────
@@ -1184,6 +1188,496 @@ def send_audit_email(results, score_data):
         return False, str(exc)
 
 
+# ── A/B Testing Module ────────────────────────────────────────────────────────
+
+def run_ab_comparison(url_a, url_b, keyword=None):
+    """
+    Audit both URLs and return a structured comparison dict.
+    Runs both audits (cached independently) and scores them.
+    """
+    results_a = perform_seo_audit(url_a, keyword or None)
+    results_b = perform_seo_audit(url_b, keyword or None)
+    score_a = calculate_seo_score(results_a) if not results_a.get("error") else {"total": 0, "categories": {}}
+    score_b = calculate_seo_score(results_b) if not results_b.get("error") else {"total": 0, "categories": {}}
+    return {
+        "url_a": url_a,
+        "url_b": url_b,
+        "keyword": keyword,
+        "timestamp": datetime.utcnow().isoformat(),
+        "results_a": results_a,
+        "results_b": results_b,
+        "score_a": score_a,
+        "score_b": score_b,
+        "winner": "A" if score_a["total"] >= score_b["total"] else "B",
+    }
+
+
+def _ab_metric_rows(ra, rb):
+    """
+    Build a list of (metric, val_a, val_b, winner) tuples for every comparable
+    SEO dimension.
+    """
+    rows = []
+
+    def _status(r, key, sub="status"):
+        return r.get(key, {}).get(sub, "fail") if isinstance(r.get(key), dict) else "fail"
+
+    def _win(sa, sb):
+        order = {"pass": 2, "warn": 1, "fail": 0}
+        va, vb = order.get(sa, 0), order.get(sb, 0)
+        if va > vb:
+            return "A"
+        if vb > va:
+            return "B"
+        return "tie"
+
+    checks = [
+        ("SSL / HTTPS",       _status(ra, "ssl"),            _status(rb, "ssl")),
+        ("Mobile Viewport",   _status(ra, "mobile"),         _status(rb, "mobile")),
+        ("H1 Tag",            _status(ra, "h1"),             _status(rb, "h1")),
+        ("Favicon",           _status(ra, "favicon"),        _status(rb, "favicon")),
+        ("Open Graph Tags",   _status(ra, "og_tags"),        _status(rb, "og_tags")),
+        ("Twitter Cards",     _status(ra, "twitter_tags"),   _status(rb, "twitter_tags")),
+        ("Structured Data",   _status(ra, "structured_data"),_status(rb, "structured_data")),
+        ("Page Speed",        _status(ra, "page_speed"),     _status(rb, "page_speed")),
+    ]
+
+    # robots / sitemap
+    rs_a = ra.get("robots_sitemap", {})
+    rs_b = rb.get("robots_sitemap", {})
+    for key, label in [("robots", "robots.txt"), ("sitemap", "sitemap.xml")]:
+        sa = "pass" if rs_a.get(key, {}).get("found") else "fail"
+        sb = "pass" if rs_b.get(key, {}).get("found") else "fail"
+        checks.append((label, sa, sb))
+
+    # meta title quality
+    def _title_status(r):
+        t = r.get("title", "")
+        if not t:
+            return "fail"
+        return "pass" if 30 <= len(t) <= 65 else "warn"
+
+    def _desc_status(r):
+        d = r.get("description", "")
+        if not d:
+            return "fail"
+        return "pass" if 50 <= len(d) <= 160 else "warn"
+
+    checks.append(("Meta Title",       _title_status(ra), _title_status(rb)))
+    checks.append(("Meta Description", _desc_status(ra),  _desc_status(rb)))
+
+    # broken links
+    def _link_status(r):
+        n = len(r.get("links", {}).get("broken", []))
+        return "pass" if n == 0 else ("warn" if n < 3 else "fail")
+
+    checks.append(("Broken Links", _link_status(ra), _link_status(rb)))
+
+    for label, sa, sb in checks:
+        rows.append((label, sa, sb, _win(sa, sb)))
+
+    return rows
+
+
+_STATUS_ICONS = {"pass": "✅", "warn": "⚠️", "fail": "❌"}
+
+
+def render_ab_comparison(comparison):
+    """Render an interactive A/B comparison dashboard."""
+    ra = comparison["results_a"]
+    rb = comparison["results_b"]
+    sa = comparison["score_a"]
+    sb = comparison["score_b"]
+    winner = comparison["winner"]
+
+    # Top score cards
+    col_a, col_mid, col_b = st.columns([5, 2, 5])
+    with col_a:
+        color_a = _score_color(sa["total"])
+        st.markdown(
+            f"""<div style="background:#fff;border:2px solid {color_a};border-radius:12px;
+            padding:20px;text-align:center">
+            <div style="font-size:0.85rem;color:#888;margin-bottom:4px">Version A</div>
+            <div style="font-size:0.75rem;color:#555;word-break:break-all;margin-bottom:8px">
+              {comparison['url_a']}</div>
+            <div style="font-size:3rem;font-weight:bold;color:{color_a}">{sa['total']}</div>
+            <div style="color:#888;font-size:0.8rem">/ 100</div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+    with col_mid:
+        st.markdown(
+            """<div style="text-align:center;padding-top:40px;font-size:1.5rem">VS</div>""",
+            unsafe_allow_html=True,
+        )
+    with col_b:
+        color_b = _score_color(sb["total"])
+        badge = " 🏆 WINNER" if winner == "B" else ""
+        badgeA = " 🏆 WINNER" if winner == "A" else ""
+        # patch A badge
+        col_a.markdown(
+            f"""<div style="text-align:center;color:{color_a};font-weight:bold;
+            font-size:0.85rem;margin-top:4px">{badgeA}</div>""",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"""<div style="background:#fff;border:2px solid {color_b};border-radius:12px;
+            padding:20px;text-align:center">
+            <div style="font-size:0.85rem;color:#888;margin-bottom:4px">Version B</div>
+            <div style="font-size:0.75rem;color:#555;word-break:break-all;margin-bottom:8px">
+              {comparison['url_b']}</div>
+            <div style="font-size:3rem;font-weight:bold;color:{color_b}">{sb['total']}</div>
+            <div style="color:#888;font-size:0.8rem">/ 100</div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"""<div style="text-align:center;color:{color_b};font-weight:bold;
+            font-size:0.85rem;margin-top:4px">{badge}</div>""",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+
+    # Metric-by-metric table
+    rows = _ab_metric_rows(ra, rb)
+    a_wins = sum(1 for _, _, _, w in rows if w == "A")
+    b_wins = sum(1 for _, _, _, w in rows if w == "B")
+    ties   = sum(1 for _, _, _, w in rows if w == "tie")
+
+    st.markdown(f"#### Metric Breakdown — A wins **{a_wins}**, B wins **{b_wins}**, Ties **{ties}**")
+
+    header_html = """
+    <table style="width:100%;border-collapse:collapse;font-size:0.9rem">
+      <thead>
+        <tr style="background:#1e3a5f;color:#fff">
+          <th style="padding:10px 14px;text-align:left">Metric</th>
+          <th style="padding:10px 14px;text-align:center">Version A</th>
+          <th style="padding:10px 14px;text-align:center">Version B</th>
+          <th style="padding:10px 14px;text-align:center">Winner</th>
+        </tr>
+      </thead><tbody>"""
+    body_html = ""
+    winner_colors = {"A": "#e8f4e8", "B": "#e8f4e8", "tie": "#fff"}
+    for i, (label, sta, stb, win) in enumerate(rows):
+        bg = "#f9f9f9" if i % 2 == 0 else "#fff"
+        icon_a = _STATUS_ICONS.get(sta, "❓")
+        icon_b = _STATUS_ICONS.get(stb, "❓")
+        if win == "A":
+            win_cell = '<span style="color:#27ae60;font-weight:bold">⬅ A</span>'
+        elif win == "B":
+            win_cell = '<span style="color:#2e86ab;font-weight:bold">B ➡</span>'
+        else:
+            win_cell = '<span style="color:#888">Tie</span>'
+        body_html += (
+            f'<tr style="background:{bg}">'
+            f'<td style="padding:8px 14px;border-bottom:1px solid #eee">{label}</td>'
+            f'<td style="padding:8px 14px;border-bottom:1px solid #eee;text-align:center">{icon_a} {sta.upper()}</td>'
+            f'<td style="padding:8px 14px;border-bottom:1px solid #eee;text-align:center">{icon_b} {stb.upper()}</td>'
+            f'<td style="padding:8px 14px;border-bottom:1px solid #eee;text-align:center">{win_cell}</td>'
+            f"</tr>"
+        )
+    st.markdown(header_html + body_html + "</tbody></table>", unsafe_allow_html=True)
+
+    # Category score side-by-side bar chart
+    st.markdown("---")
+    cats = list(sa.get("categories", {}).keys())
+    pcts_a = [sa["categories"][c]["pct"] for c in cats]
+    pcts_b = [sb["categories"][c]["pct"] for c in cats]
+    if cats:
+        fig = go.Figure(data=[
+            go.Bar(name="Version A", x=cats, y=pcts_a, marker_color="#1e3a5f",
+                   text=[f"{p}%" for p in pcts_a], textposition="auto"),
+            go.Bar(name="Version B", x=cats, y=pcts_b, marker_color="#2e86ab",
+                   text=[f"{p}%" for p in pcts_b], textposition="auto"),
+        ])
+        fig.update_layout(
+            barmode="group", title="Category Score Comparison",
+            yaxis={"range": [0, 100], "title": "Score (%)"},
+            height=320, margin=dict(l=10, r=10, t=50, b=80),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Per-URL recommendations
+    with st.expander("💡 Version A — Recommendations"):
+        for r in generate_recommendations(ra):
+            st.markdown(r)
+    with st.expander("💡 Version B — Recommendations"):
+        for r in generate_recommendations(rb):
+            st.markdown(r)
+
+    # Verdict
+    diff = abs(sa["total"] - sb["total"])
+    if diff == 0:
+        verdict = "Both versions score equally. Review per-metric wins to choose the better candidate."
+    elif diff < 10:
+        verdict = (
+            f"Version **{winner}** has a slight edge (+{diff} pts). "
+            "The gap is small — address the recommendations on the losing version to close it."
+        )
+    else:
+        verdict = (
+            f"Version **{winner}** is clearly stronger (+{diff} pts). "
+            "Adopt its SEO structure as your baseline and apply its fixes to the other."
+        )
+    st.info(f"**🏁 Verdict:** {verdict}")
+
+
+# ── Revenue Intelligence Module ───────────────────────────────────────────────
+
+# Industry-average CTR by SERP position (Backlinko 2023 data)
+_CTR_BY_POSITION = {
+    1: 0.278, 2: 0.152, 3: 0.111,
+    4: 0.074, 5: 0.053, 6: 0.041,
+    7: 0.032, 8: 0.025, 9: 0.021, 10: 0.018,
+}
+
+# Recommendation slugs that map to estimated traffic impact (fraction of monthly traffic)
+_REC_TRAFFIC_IMPACT = {
+    "HTTPS":           0.20,
+    "viewport":        0.18,
+    "Meta Title":      0.14,
+    "H1":              0.12,
+    "Meta Description":0.10,
+    "Page Speed":      0.10,
+    "Broken Links":    0.08,
+    "Structured Data": 0.08,
+    "robots.txt":      0.05,
+    "sitemap.xml":     0.05,
+    "Open Graph":      0.04,
+    "Twitter Card":    0.03,
+    "Favicon":         0.02,
+}
+
+
+def _score_to_avg_position(score):
+    """Map SEO score to an estimated average SERP position (1–20)."""
+    if score >= 90:
+        return 1.5
+    if score >= 80:
+        return 3.0
+    if score >= 70:
+        return 5.5
+    if score >= 60:
+        return 8.0
+    if score >= 50:
+        return 12.0
+    if score >= 40:
+        return 16.0
+    return 20.0
+
+
+def _position_to_ctr(position):
+    """Return average CTR for a given (possibly fractional) SERP position."""
+    low = int(position)
+    high = low + 1
+    ctr_low  = _CTR_BY_POSITION.get(low,  0.005)
+    ctr_high = _CTR_BY_POSITION.get(high, 0.005)
+    frac = position - low
+    return ctr_low + frac * (ctr_high - ctr_low)
+
+
+def calculate_revenue_projections(score_now, recs, monthly_impressions, conversion_rate, aov):
+    """
+    Return a dict of revenue projections based on current SEO score and
+    user-provided business metrics.
+
+    Parameters
+    ----------
+    score_now          : int   current SEO score (0-100)
+    recs               : list  list of recommendation strings
+    monthly_impressions: float monthly organic search impressions
+    conversion_rate    : float conversion rate as a decimal (e.g., 0.02 = 2%)
+    aov                : float average order value in dollars
+    """
+    pos_now = _score_to_avg_position(score_now)
+    ctr_now = _position_to_ctr(pos_now)
+
+    traffic_now     = monthly_impressions * ctr_now
+    revenue_now     = traffic_now * conversion_rate * aov
+
+    # Fully optimised (score 95) baseline
+    pos_opt = _score_to_avg_position(95)
+    ctr_opt = _position_to_ctr(pos_opt)
+    traffic_opt     = monthly_impressions * ctr_opt
+    revenue_opt     = traffic_opt * conversion_rate * aov
+    revenue_delta   = revenue_opt - revenue_now
+
+    # Per-recommendation impact
+    rec_impacts = []
+    for rec in recs:
+        matched_key = next(
+            (k for k in _REC_TRAFFIC_IMPACT if k.lower() in rec.lower()), None
+        )
+        if matched_key:
+            traffic_gain   = traffic_now * _REC_TRAFFIC_IMPACT[matched_key]
+            revenue_gain   = traffic_gain * conversion_rate * aov
+            rec_impacts.append({
+                "rec":          rec,
+                "traffic_gain": round(traffic_gain),
+                "revenue_gain": round(revenue_gain),
+                "impact_pct":   round(_REC_TRAFFIC_IMPACT[matched_key] * 100, 1),
+            })
+
+    rec_impacts.sort(key=lambda x: x["revenue_gain"], reverse=True)
+
+    # Score improvement curve (score 40 → 100, step 5)
+    curve = []
+    for s in range(max(40, score_now), 101, 5):
+        p = _score_to_avg_position(s)
+        c = _position_to_ctr(p)
+        t = monthly_impressions * c
+        r = t * conversion_rate * aov
+        curve.append({"score": s, "traffic": round(t), "revenue": round(r)})
+
+    return {
+        "score_now":        score_now,
+        "pos_now":          round(pos_now, 1),
+        "ctr_now":          round(ctr_now * 100, 2),
+        "traffic_now":      round(traffic_now),
+        "revenue_now":      round(revenue_now, 2),
+        "revenue_optimised":round(revenue_opt, 2),
+        "revenue_delta":    round(revenue_delta, 2),
+        "rec_impacts":      rec_impacts,
+        "curve":            curve,
+    }
+
+
+def render_revenue_dashboard(results, score_data):
+    """Render the interactive Revenue Impact calculator."""
+    st.markdown("### 💰 Revenue Impact Calculator")
+    st.caption(
+        "Enter your business metrics below. The calculator projects how improving "
+        "your SEO score translates directly to traffic and revenue."
+    )
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        monthly_impressions = st.number_input(
+            "Monthly Organic Impressions",
+            min_value=100, max_value=10_000_000,
+            value=10_000, step=500,
+            help="How many times your site appears in search results per month. "
+                 "Find this in Google Search Console.",
+        )
+    with c2:
+        conversion_rate_pct = st.number_input(
+            "Conversion Rate (%)",
+            min_value=0.1, max_value=100.0,
+            value=2.0, step=0.1, format="%.1f",
+            help="Percentage of visitors who make a purchase or complete a goal.",
+        )
+    with c3:
+        aov = st.number_input(
+            "Average Order / Lead Value ($)",
+            min_value=1, max_value=1_000_000,
+            value=150, step=10,
+            help="Average dollar value of a converted customer.",
+        )
+
+    if not st.button("📊 Calculate Revenue Impact", use_container_width=True):
+        st.info("Fill in your business metrics above, then click **Calculate Revenue Impact**.")
+        return
+
+    recs = generate_recommendations(results)
+    proj = calculate_revenue_projections(
+        score_now=score_data["total"],
+        recs=recs,
+        monthly_impressions=float(monthly_impressions),
+        conversion_rate=conversion_rate_pct / 100.0,
+        aov=float(aov),
+    )
+
+    # KPI row
+    st.markdown("---")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Current Avg. Position",  f"#{proj['pos_now']}")
+    k2.metric("Estimated CTR",          f"{proj['ctr_now']}%")
+    k3.metric("Est. Monthly Visitors",  f"{proj['traffic_now']:,}")
+    k4.metric("Est. Monthly Revenue",   f"${proj['revenue_now']:,.0f}")
+
+    st.markdown("---")
+    opp_col, detail_col = st.columns([1, 2])
+    with opp_col:
+        delta_color = "normal" if proj["revenue_delta"] >= 0 else "inverse"
+        st.metric(
+            "Revenue if Fully Optimised (Score 95)",
+            f"${proj['revenue_optimised']:,.0f}",
+            delta=f"+${proj['revenue_delta']:,.0f}/mo opportunity",
+        )
+        st.metric(
+            "Annual Revenue Opportunity",
+            f"${proj['revenue_delta'] * 12:,.0f}",
+        )
+    with detail_col:
+        # Revenue vs Score line chart
+        if proj["curve"]:
+            fig = go.Figure()
+            scores  = [c["score"]   for c in proj["curve"]]
+            revs    = [c["revenue"] for c in proj["curve"]]
+            traffic = [c["traffic"] for c in proj["curve"]]
+            fig.add_trace(go.Scatter(
+                x=scores, y=revs, mode="lines+markers",
+                name="Monthly Revenue ($)",
+                line=dict(color="#27ae60", width=3),
+                marker=dict(size=6),
+                yaxis="y1",
+            ))
+            fig.add_trace(go.Scatter(
+                x=scores, y=traffic, mode="lines+markers",
+                name="Monthly Visitors",
+                line=dict(color="#2e86ab", width=2, dash="dot"),
+                marker=dict(size=5),
+                yaxis="y2",
+            ))
+            # Mark current score
+            fig.add_vline(
+                x=proj["score_now"], line_dash="dash", line_color="#e74c3c",
+                annotation_text=f"Current ({proj['score_now']})", annotation_position="top right",
+            )
+            fig.update_layout(
+                title="Revenue & Traffic vs SEO Score",
+                xaxis_title="SEO Score",
+                yaxis=dict(title="Monthly Revenue ($)", tickformat="$,.0f"),
+                yaxis2=dict(title="Monthly Visitors", overlaying="y", side="right"),
+                height=320,
+                margin=dict(l=10, r=60, t=50, b=40),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Priority action table
+    if proj["rec_impacts"]:
+        st.markdown("---")
+        st.markdown("#### 🎯 Priority Actions — Ranked by Revenue Impact")
+        st.caption("Fix these issues first to maximise ROI.")
+        for i, item in enumerate(proj["rec_impacts"], 1):
+            severity = "🔴" if item["revenue_gain"] > proj["revenue_delta"] * 0.15 else "🟡"
+            with st.container():
+                c_rank, c_rec, c_traffic, c_rev = st.columns([1, 6, 2, 2])
+                c_rank.markdown(f"**#{i}** {severity}")
+                # Strip leading emoji/bold markers for cleaner display
+                clean_rec = item["rec"].lstrip("🔴🟡 ").lstrip("*").strip("*")
+                c_rec.markdown(clean_rec)
+                c_traffic.metric("Traffic Gain", f"+{item['traffic_gain']:,}/mo")
+                c_rev.metric("Revenue Gain", f"+${item['revenue_gain']:,}/mo")
+        st.markdown("---")
+        total_rec_rev = sum(i["revenue_gain"] for i in proj["rec_impacts"])
+        st.success(
+            f"💡 Fixing all {len(proj['rec_impacts'])} prioritised issues could unlock "
+            f"**+${total_rec_rev:,}/month** in additional revenue."
+        )
+
+    # Store projections in session for potential email inclusion
+    if "revenue_projections" not in st.session_state:
+        st.session_state.revenue_projections = {}
+    st.session_state.revenue_projections[results.get("url", "")] = proj
+
+
 # ── Dashboard Tab Renderers ────────────────────────────────────────────────────
 
 def _render_technical(results):
@@ -1514,6 +2008,8 @@ For Gmail, use an [App Password](https://support.google.com/accounts/answer/1858
         st.markdown("---")
         if st.button("🗑️ Clear Session History"):
             st.session_state.audit_history = []
+            st.session_state.ab_history = []
+            st.session_state.revenue_projections = {}
             st.success("Session cleared")
 
 
@@ -1522,8 +2018,8 @@ For Gmail, use an [App Password](https://support.google.com/accounts/answer/1858
 st.markdown(
     """
 <div class="main-header">
-    <h1>🔍 Free SEO Audit Tool</h1>
-    <p>Powered by ATI &amp; AI · Uncover SEO opportunities in seconds</p>
+    <h1>🔍 ATI &amp; AI · SEO Growth Platform</h1>
+    <p>Audit · A/B Test · Revenue Intelligence — everything you need to dominate search</p>
 </div>
 """,
     unsafe_allow_html=True,
@@ -1531,59 +2027,145 @@ st.markdown(
 
 render_admin_panel()
 
-col_url, col_kw, col_btn = st.columns([3, 2, 1])
-with col_url:
-    url = st.text_input(
-        "Website URL",
-        placeholder="https://example.com",
-        label_visibility="collapsed",
-    )
-with col_kw:
-    keyword = st.text_input(
-        "Target Keyword (optional)",
-        placeholder="e.g., AI tools for SEO",
-        label_visibility="collapsed",
-    )
-with col_btn:
-    run_audit = st.button("🚀 Run Audit", use_container_width=True)
+tab_audit, tab_ab, tab_rev = st.tabs([
+    "🔍 SEO Audit",
+    "⚖️ A/B Testing",
+    "💰 Revenue Impact",
+])
 
-if run_audit:
-    if not url:
-        st.error("Please enter a valid URL before running the audit.")
-    else:
-        progress_bar = st.progress(0, text="Starting audit…")
-        try:
-            progress_bar.progress(10, text="Fetching page…")
-            results = perform_seo_audit(url, keyword or None)
-            progress_bar.progress(80, text="Calculating score…")
-            if results.get("error"):
-                progress_bar.empty()
-                st.error(f"❌ {results['error']}")
-            elif not results.get("accessible"):
-                progress_bar.empty()
-                st.error(
-                    f"❌ Page not accessible (HTTP {results.get('status_code', 'unknown')})"
-                )
-            else:
-                score_data = calculate_seo_score(results)
-                progress_bar.progress(95, text="Sending report…")
-                if results not in st.session_state.audit_history:
-                    st.session_state.audit_history.append(results)
-                # Auto-send email report (silent if SMTP not configured)
-                email_ok, email_err = send_audit_email(results, score_data)
-                progress_bar.progress(100, text="Complete!")
-                progress_bar.empty()
-                if email_ok:
-                    cfg = _get_email_config()
-                    st.success(
-                        f"✅ Audit complete — SEO Score: **{score_data['total']}/100** "
-                        f"· Report emailed to {cfg['notify']}"
+# ── Tab 1: SEO Audit ──────────────────────────────────────────────────────────
+with tab_audit:
+    col_url, col_kw, col_btn = st.columns([3, 2, 1])
+    with col_url:
+        url = st.text_input(
+            "Website URL",
+            placeholder="https://example.com",
+            label_visibility="collapsed",
+            key="audit_url",
+        )
+    with col_kw:
+        keyword = st.text_input(
+            "Target Keyword (optional)",
+            placeholder="e.g., AI tools for SEO",
+            label_visibility="collapsed",
+            key="audit_kw",
+        )
+    with col_btn:
+        run_audit = st.button("🚀 Run Audit", use_container_width=True, key="btn_audit")
+
+    if run_audit:
+        if not url:
+            st.error("Please enter a valid URL before running the audit.")
+        else:
+            progress_bar = st.progress(0, text="Starting audit…")
+            try:
+                progress_bar.progress(10, text="Fetching page…")
+                results = perform_seo_audit(url, keyword or None)
+                progress_bar.progress(80, text="Calculating score…")
+                if results.get("error"):
+                    progress_bar.empty()
+                    st.error(f"❌ {results['error']}")
+                elif not results.get("accessible"):
+                    progress_bar.empty()
+                    st.error(
+                        f"❌ Page not accessible (HTTP {results.get('status_code', 'unknown')})"
                     )
                 else:
-                    st.success(
-                        f"✅ Audit complete — SEO Score: **{score_data['total']}/100**"
-                    )
-                display_results(results, score_data)
-        except Exception as exc:
-            progress_bar.empty()
-            st.error(f"An unexpected error occurred: {str(exc)}")
+                    score_data = calculate_seo_score(results)
+                    progress_bar.progress(95, text="Sending report…")
+                    if results not in st.session_state.audit_history:
+                        st.session_state.audit_history.append(results)
+                    email_ok, _email_err = send_audit_email(results, score_data)
+                    progress_bar.progress(100, text="Complete!")
+                    progress_bar.empty()
+                    if email_ok:
+                        cfg = _get_email_config()
+                        st.success(
+                            f"✅ Audit complete — SEO Score: **{score_data['total']}/100** "
+                            f"· Report emailed to {cfg['notify']}"
+                        )
+                    else:
+                        st.success(
+                            f"✅ Audit complete — SEO Score: **{score_data['total']}/100**"
+                        )
+                    display_results(results, score_data)
+            except Exception as exc:
+                progress_bar.empty()
+                st.error(f"An unexpected error occurred: {str(exc)}")
+
+# ── Tab 2: A/B Testing ────────────────────────────────────────────────────────
+with tab_ab:
+    st.markdown("### ⚖️ SEO A/B Test")
+    st.caption(
+        "Compare two page versions head-to-head on every SEO metric. "
+        "Use this to validate changes before deploying, or benchmark against a competitor."
+    )
+    c_a, c_b, c_kw_ab = st.columns([3, 3, 2])
+    with c_a:
+        url_a = st.text_input(
+            "Version A URL",
+            placeholder="https://your-page.com",
+            key="ab_url_a",
+        )
+    with c_b:
+        url_b = st.text_input(
+            "Version B URL",
+            placeholder="https://competitor.com",
+            key="ab_url_b",
+        )
+    with c_kw_ab:
+        ab_keyword = st.text_input(
+            "Keyword (optional)",
+            placeholder="e.g., SEO tools",
+            key="ab_kw",
+        )
+
+    run_ab = st.button("⚖️ Run A/B Comparison", use_container_width=True, key="btn_ab")
+
+    if run_ab:
+        if not url_a or not url_b:
+            st.error("Please enter both URLs to run a comparison.")
+        elif url_a.strip() == url_b.strip():
+            st.error("Version A and Version B must be different URLs.")
+        else:
+            with st.spinner("Auditing both versions — this may take a moment…"):
+                comparison = run_ab_comparison(url_a.strip(), url_b.strip(), ab_keyword or None)
+            ra_err = comparison["results_a"].get("error")
+            rb_err = comparison["results_b"].get("error")
+            if ra_err:
+                st.error(f"❌ Version A failed: {ra_err}")
+            elif rb_err:
+                st.error(f"❌ Version B failed: {rb_err}")
+            else:
+                st.session_state.ab_history.append(comparison)
+                st.success(
+                    f"✅ Comparison complete — "
+                    f"A: **{comparison['score_a']['total']}/100** vs "
+                    f"B: **{comparison['score_b']['total']}/100** — "
+                    f"Winner: **Version {comparison['winner']}**"
+                )
+                render_ab_comparison(comparison)
+    elif st.session_state.ab_history:
+        st.info(f"Showing last comparison. Run a new one above to refresh.")
+        render_ab_comparison(st.session_state.ab_history[-1])
+
+# ── Tab 3: Revenue Impact ─────────────────────────────────────────────────────
+with tab_rev:
+    # Requires a completed audit — let user pick from history or enter URL
+    history = st.session_state.audit_history
+    if not history:
+        st.info(
+            "💡 Run a **SEO Audit** first (tab above), then return here to calculate "
+            "the revenue impact of your SEO improvements."
+        )
+    else:
+        url_options = [r.get("url", f"Audit #{i+1}") for i, r in enumerate(history)]
+        selected_idx = st.selectbox(
+            "Select audited URL",
+            range(len(url_options)),
+            format_func=lambda i: url_options[i],
+            key="rev_url_select",
+        )
+        selected_result = history[selected_idx]
+        selected_score  = calculate_seo_score(selected_result)
+        render_revenue_dashboard(selected_result, selected_score)

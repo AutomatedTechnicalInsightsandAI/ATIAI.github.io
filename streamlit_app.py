@@ -534,7 +534,7 @@ def perform_seo_audit(website, keyword=None):
             "timestamp": datetime.utcnow().isoformat(),
             "accessible": False,
             "status_code": response.status_code,
-              soup = BeautifulSoup(response.text, "html.parser")
+    soup = BeautifulSoup(response.text, "html.parser")
         }
 
 

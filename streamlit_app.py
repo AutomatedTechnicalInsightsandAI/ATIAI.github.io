@@ -36,6 +36,63 @@ HEADERS = {
     )
 }
 
+# Private / reserved IPv4 ranges that must never be fetched (SSRF guard)
+import ipaddress as _ipaddress
+
+_PRIVATE_NETWORKS = [
+    _ipaddress.ip_network(cidr)
+    for cidr in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "127.0.0.0/8",
+        "169.254.0.0/16",   # link-local
+        "100.64.0.0/10",    # shared address space
+        "::1/128",          # IPv6 loopback
+        "fc00::/7",         # IPv6 unique local
+        "fe80::/10",        # IPv6 link-local
+    )
+]
+
+
+def _is_safe_url(url: str) -> tuple[bool, str]:
+    """
+    Validate that a URL is safe to fetch:
+      - Must use http or https scheme
+      - Hostname must resolve to a public IP (blocks SSRF to internal services)
+    Returns (is_safe, reason).
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False, "Invalid URL format"
+
+    if parsed.scheme not in ("http", "https"):
+        return False, f"Unsupported scheme '{parsed.scheme}' — only http/https allowed"
+
+    hostname = parsed.hostname
+    if not hostname:
+        return False, "No hostname in URL"
+
+    try:
+        addr_infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        return False, f"Cannot resolve hostname '{hostname}'"
+
+    for _family, _type, _proto, _canonname, sockaddr in addr_infos:
+        ip_str = sockaddr[0]
+        try:
+            addr = _ipaddress.ip_address(ip_str)
+        except ValueError:
+            continue
+        for net in _PRIVATE_NETWORKS:
+            if addr in net:
+                return False, (
+                    f"Hostname '{hostname}' resolves to a private/reserved address "
+                    f"({ip_str}) — fetching internal addresses is not permitted"
+                )
+    return True, ""
+
 
 def _get_admin_password():
     """Return admin password from Streamlit secrets or environment variable."""
@@ -59,18 +116,129 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-    .main-header {
-        background: linear-gradient(135deg, #1e3a5f 0%, #2e86ab 100%);
-        padding: 2rem 1.5rem;
-        border-radius: 12px;
-        margin-bottom: 1.5rem;
-        color: white;
-        text-align: center;
-    }
-    .main-header h1 { color: white; margin: 0; font-size: 2rem; }
-    .main-header p  { color: rgba(255,255,255,0.85); margin: 0.4rem 0 0; font-size: 1rem; }
-    #MainMenu { visibility: hidden; }
-    footer     { visibility: hidden; }
+  /* ── Global ── */
+  #MainMenu { visibility: hidden; }
+  footer     { visibility: hidden; }
+
+  /* ── Hero ── */
+  .hero {
+    background: linear-gradient(135deg, #0d2137 0%, #1e3a5f 50%, #2e86ab 100%);
+    padding: 3.5rem 2rem 2.5rem;
+    border-radius: 16px;
+    margin-bottom: 0;
+    color: white;
+    text-align: center;
+  }
+  .hero h1 {
+    color: white; margin: 0 0 0.5rem;
+    font-size: 2.6rem; font-weight: 800; letter-spacing: -0.5px;
+  }
+  .hero .tagline {
+    color: rgba(255,255,255,0.9); font-size: 1.15rem; margin: 0 0 1.5rem;
+  }
+  .hero .stats {
+    display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap;
+    margin-top: 1.5rem;
+  }
+  .hero .stat {
+    text-align: center;
+  }
+  .hero .stat-num {
+    font-size: 1.8rem; font-weight: 800; color: #7ecfff;
+  }
+  .hero .stat-label {
+    font-size: 0.75rem; color: rgba(255,255,255,0.7); text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── Service Cards ── */
+  .svc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .svc-card {
+    background: #fff;
+    border: 2px solid #e8ecf0;
+    border-radius: 14px;
+    padding: 1.4rem 1rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: box-shadow 0.2s, border-color 0.2s, transform 0.15s;
+  }
+  .svc-card:hover {
+    box-shadow: 0 6px 24px rgba(46,134,171,0.18);
+    border-color: #2e86ab;
+    transform: translateY(-3px);
+  }
+  .svc-card.active {
+    border-color: #2e86ab;
+    background: linear-gradient(135deg, #f0f8ff, #e8f4fb);
+    box-shadow: 0 4px 16px rgba(46,134,171,0.2);
+  }
+  .svc-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+  .svc-name { font-weight: 700; font-size: 0.95rem; color: #1e3a5f; margin-bottom: 0.3rem; }
+  .svc-desc { font-size: 0.78rem; color: #666; line-height: 1.4; }
+
+  /* ── Section divider ── */
+  .section-label {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px;
+    color: #999; margin: 2rem 0 0.5rem; font-weight: 600;
+  }
+
+  /* ── Proof strip ── */
+  .proof-strip {
+    background: #f7f9fc;
+    border-radius: 10px;
+    padding: 1rem 1.5rem;
+    display: flex; flex-wrap: wrap; gap: 1rem;
+    justify-content: space-around;
+    margin: 1rem 0 0;
+  }
+  .proof-item { text-align: center; }
+  .proof-num  { font-size: 1.4rem; font-weight: 800; color: #1e3a5f; }
+  .proof-lbl  { font-size: 0.75rem; color: #888; }
+
+  /* ── How It Works ── */
+  .hiw-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem; margin: 1rem 0;
+  }
+  .hiw-card {
+    background: #fff; border-radius: 12px;
+    padding: 1.2rem 0.9rem; text-align: center;
+    border: 1px solid #e8ecf0;
+  }
+  .hiw-num {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: #1e3a5f; color: #fff;
+    font-size: 0.85rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 0.6rem;
+  }
+  .hiw-title { font-weight: 700; font-size: 0.88rem; color: #1e3a5f; margin-bottom: 0.3rem; }
+  .hiw-body  { font-size: 0.78rem; color: #666; line-height: 1.4; }
+
+  /* ── Footer ── */
+  .app-footer {
+    background: #0d2137;
+    border-radius: 12px;
+    padding: 2rem 1.5rem;
+    margin-top: 2rem;
+    color: rgba(255,255,255,0.7);
+    text-align: center;
+    font-size: 0.82rem;
+  }
+  .app-footer a { color: #7ecfff; text-decoration: none; }
+  .app-footer .footer-links {
+    display: flex; flex-wrap: wrap; justify-content: center;
+    gap: 1.5rem; margin-bottom: 1rem;
+  }
+  .app-footer .footer-brand {
+    font-size: 1.1rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem;
+  }
 </style>
 """,
     unsafe_allow_html=True,
@@ -85,6 +253,8 @@ if "ab_history" not in st.session_state:
     st.session_state.ab_history = []
 if "revenue_projections" not in st.session_state:
     st.session_state.revenue_projections = {}
+if "active_service" not in st.session_state:
+    st.session_state.active_service = "audit"
 
 
 # ── Advanced SEO Check Helpers ─────────────────────────────────────────────────
@@ -272,6 +442,8 @@ def check_ssl(website):
     hostname = parsed.netloc.split(":")[0]
     try:
         ctx = ssl.create_default_context()
+        # Enforce TLS 1.2 minimum — TLS 1.0 and 1.1 are deprecated and insecure
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         with ctx.wrap_socket(socket.socket(), server_hostname=hostname) as sock:
             sock.settimeout(5)
             sock.connect((hostname, 443))
@@ -346,6 +518,9 @@ def check_page_speed(response, soup):
 @st.cache_data(ttl=300, show_spinner=False)
 def perform_seo_audit(website, keyword=None):
     """Perform a comprehensive SEO audit on the given URL."""
+    safe, reason = _is_safe_url(website)
+    if not safe:
+        return {"error": reason}
     try:
         response = requests.get(website, timeout=10, headers=HEADERS)
     except requests.RequestException as exc:
@@ -397,6 +572,10 @@ def perform_seo_audit(website, keyword=None):
     broken = []
     ok_links = []
     for link in sampled_links:
+        link_safe, _link_reason = _is_safe_url(link)
+        if not link_safe:
+            # Skip links that resolve to private/internal addresses
+            continue
         try:
             link_resp = requests.head(
                 link, timeout=5, allow_redirects=True, headers=HEADERS
@@ -2015,26 +2194,111 @@ For Gmail, use an [App Password](https://support.google.com/accounts/answer/1858
 
 # ── Main App ───────────────────────────────────────────────────────────────────
 
+render_admin_panel()
+
+# ── 1. HERO ───────────────────────────────────────────────────────────────────
 st.markdown(
     """
-<div class="main-header">
-    <h1>🔍 ATI &amp; AI · SEO Growth Platform</h1>
-    <p>Audit · A/B Test · Revenue Intelligence — everything you need to dominate search</p>
+<div class="hero">
+  <h1>🔍 ATI &amp; AI SEO Platform</h1>
+  <p class="tagline">
+    Audit any website, A/B test SEO changes, and calculate the exact revenue<br>
+    your rankings are leaving on the table — all in one free tool.
+  </p>
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-num">15+</div>
+      <div class="stat-label">SEO Checks</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">0–100</div>
+      <div class="stat-label">Scored Instantly</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">A/B</div>
+      <div class="stat-label">Competitor Testing</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">$ROI</div>
+      <div class="stat-label">Revenue Projections</div>
+    </div>
+  </div>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
-render_admin_panel()
+# ── 2. SERVICE SELECTION BUTTONS ──────────────────────────────────────────────
+st.markdown('<p class="section-label">Select a Service</p>', unsafe_allow_html=True)
 
-tab_audit, tab_ab, tab_rev = st.tabs([
-    "🔍 SEO Audit",
-    "⚖️ A/B Testing",
-    "💰 Revenue Impact",
-])
+SERVICES = [
+    {
+        "key":   "audit",
+        "icon":  "🔍",
+        "name":  "Free SEO Audit",
+        "desc":  "15-point instant analysis of any webpage — score, issues, and fixes.",
+    },
+    {
+        "key":   "ab",
+        "icon":  "⚖️",
+        "name":  "A/B Testing",
+        "desc":  "Compare your page vs a competitor on every SEO metric to find the winner.",
+    },
+    {
+        "key":   "revenue",
+        "icon":  "💰",
+        "name":  "Revenue Calculator",
+        "desc":  "Translate your SEO score into projected traffic and dollar revenue.",
+    },
+    {
+        "key":   "strategy",
+        "icon":  "📈",
+        "name":  "SEO Strategy Call",
+        "desc":  "Book a free consultation with our team to build your growth roadmap.",
+    },
+    {
+        "key":   "technical",
+        "icon":  "🛠️",
+        "name":  "Technical SEO Fix",
+        "desc":  "Audit + prioritised action plan: we show you exactly what to fix first.",
+    },
+]
 
-# ── Tab 1: SEO Audit ──────────────────────────────────────────────────────────
-with tab_audit:
+# Render cards as columns with Streamlit buttons
+svc_cols = st.columns(len(SERVICES))
+for col, svc in zip(svc_cols, SERVICES):
+    with col:
+        is_active = st.session_state.active_service == svc["key"]
+        card_class = "svc-card active" if is_active else "svc-card"
+        st.markdown(
+            f"""<div class="{card_class}">
+              <div class="svc-icon">{svc['icon']}</div>
+              <div class="svc-name">{svc['name']}</div>
+              <div class="svc-desc">{svc['desc']}</div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+        if st.button(
+            f"{'▶ ' if is_active else ''}{svc['name']}",
+            key=f"svc_btn_{svc['key']}",
+            use_container_width=True,
+            type="primary" if is_active else "secondary",
+        ):
+            st.session_state.active_service = svc["key"]
+            st.rerun()
+
+st.markdown("---")
+
+# ── 3. ACTIVE SERVICE TOOL ────────────────────────────────────────────────────
+active = st.session_state.active_service
+
+# ── Service: Free SEO Audit ───────────────────────────────────────────────────
+if active == "audit":
+    st.markdown("### 🔍 Free SEO Audit")
+    st.caption(
+        "Enter any URL to get a full 15-point SEO health check with a 0–100 score, "
+        "visual dashboard, and prioritised action list."
+    )
     col_url, col_kw, col_btn = st.columns([3, 2, 1])
     with col_url:
         url = st.text_input(
@@ -2051,7 +2315,8 @@ with tab_audit:
             key="audit_kw",
         )
     with col_btn:
-        run_audit = st.button("🚀 Run Audit", use_container_width=True, key="btn_audit")
+        run_audit = st.button("🚀 Run Audit", use_container_width=True, key="btn_audit",
+                              type="primary")
 
     if run_audit:
         if not url:
@@ -2068,7 +2333,8 @@ with tab_audit:
                 elif not results.get("accessible"):
                     progress_bar.empty()
                     st.error(
-                        f"❌ Page not accessible (HTTP {results.get('status_code', 'unknown')})"
+                        f"❌ Page not accessible "
+                        f"(HTTP {results.get('status_code', 'unknown')})"
                     )
                 else:
                     score_data = calculate_seo_score(results)
@@ -2093,34 +2359,34 @@ with tab_audit:
                 progress_bar.empty()
                 st.error(f"An unexpected error occurred: {str(exc)}")
 
-# ── Tab 2: A/B Testing ────────────────────────────────────────────────────────
-with tab_ab:
-    st.markdown("### ⚖️ SEO A/B Test")
+# ── Service: A/B Testing ──────────────────────────────────────────────────────
+elif active == "ab":
+    st.markdown("### ⚖️ SEO A/B Testing")
     st.caption(
-        "Compare two page versions head-to-head on every SEO metric. "
-        "Use this to validate changes before deploying, or benchmark against a competitor."
+        "Compare your page against a competitor or a revised version on every SEO metric. "
+        "See exactly which variant wins and why."
     )
     c_a, c_b, c_kw_ab = st.columns([3, 3, 2])
     with c_a:
         url_a = st.text_input(
-            "Version A URL",
+            "Your Page (Version A)",
             placeholder="https://your-page.com",
             key="ab_url_a",
         )
     with c_b:
         url_b = st.text_input(
-            "Version B URL",
+            "Competitor / Version B",
             placeholder="https://competitor.com",
             key="ab_url_b",
         )
     with c_kw_ab:
         ab_keyword = st.text_input(
-            "Keyword (optional)",
+            "Target Keyword (optional)",
             placeholder="e.g., SEO tools",
             key="ab_kw",
         )
-
-    run_ab = st.button("⚖️ Run A/B Comparison", use_container_width=True, key="btn_ab")
+    run_ab = st.button("⚖️ Run Comparison", use_container_width=True,
+                       key="btn_ab", type="primary")
 
     if run_ab:
         if not url_a or not url_b:
@@ -2129,7 +2395,9 @@ with tab_ab:
             st.error("Version A and Version B must be different URLs.")
         else:
             with st.spinner("Auditing both versions — this may take a moment…"):
-                comparison = run_ab_comparison(url_a.strip(), url_b.strip(), ab_keyword or None)
+                comparison = run_ab_comparison(
+                    url_a.strip(), url_b.strip(), ab_keyword or None
+                )
             ra_err = comparison["results_a"].get("error")
             rb_err = comparison["results_b"].get("error")
             if ra_err:
@@ -2146,17 +2414,16 @@ with tab_ab:
                 )
                 render_ab_comparison(comparison)
     elif st.session_state.ab_history:
-        st.info(f"Showing last comparison. Run a new one above to refresh.")
+        st.info("Showing last comparison. Run a new one above to refresh.")
         render_ab_comparison(st.session_state.ab_history[-1])
 
-# ── Tab 3: Revenue Impact ─────────────────────────────────────────────────────
-with tab_rev:
-    # Requires a completed audit — let user pick from history or enter URL
+# ── Service: Revenue Calculator ───────────────────────────────────────────────
+elif active == "revenue":
     history = st.session_state.audit_history
     if not history:
         st.info(
-            "💡 Run a **SEO Audit** first (tab above), then return here to calculate "
-            "the revenue impact of your SEO improvements."
+            "💡 Run a **Free SEO Audit** first — click the 🔍 button above — "
+            "then return here to calculate the revenue impact of your improvements."
         )
     else:
         url_options = [r.get("url", f"Audit #{i+1}") for i, r in enumerate(history)]
@@ -2169,3 +2436,192 @@ with tab_rev:
         selected_result = history[selected_idx]
         selected_score  = calculate_seo_score(selected_result)
         render_revenue_dashboard(selected_result, selected_score)
+
+# ── Service: SEO Strategy Call ────────────────────────────────────────────────
+elif active == "strategy":
+    st.markdown("### 📈 SEO Strategy Consultation")
+    st.markdown(
+        "Work directly with the ATI & AI team to build a tailored SEO growth roadmap "
+        "for your business. We audit your site, analyse your competitors, and deliver "
+        "a prioritised 90-day action plan."
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("""
+**What's included:**
+- ✅ Full technical SEO audit
+- ✅ Competitor landscape analysis
+- ✅ Keyword opportunity mapping
+- ✅ 90-day SEO action plan
+- ✅ Revenue impact forecast
+- ✅ Follow-up Q&A session
+""")
+    with c2:
+        st.markdown("""
+**Who it's for:**
+- 🏢 Businesses wanting more organic traffic
+- 🛒 E-commerce stores losing revenue to competitors
+- 🚀 Startups entering competitive markets
+- 📊 Marketing teams needing a data-driven SEO strategy
+""")
+    st.markdown("---")
+    st.markdown("#### 📅 Book Your Free Strategy Call")
+    st.link_button(
+        "📅 Schedule on Calendly",
+        "https://calendly.com",
+        use_container_width=True,
+    )
+    st.caption(
+        "Prefer email? Reach out via the "
+        "[Contact Portal](https://automatedtechnicalinsightsandai.github.io/contact) "
+        "and we'll get back to you within one business day."
+    )
+
+# ── Service: Technical SEO Fix ────────────────────────────────────────────────
+elif active == "technical":
+    st.markdown("### 🛠️ Technical SEO Fix Plan")
+    st.caption(
+        "Run an audit on your URL and get a prioritised technical fix list ranked by "
+        "expected SEO impact — no guesswork, just clear actions."
+    )
+    col_url_t, col_btn_t = st.columns([4, 1])
+    with col_url_t:
+        tech_url = st.text_input(
+            "Your Website URL",
+            placeholder="https://your-site.com",
+            key="tech_url",
+        )
+    with col_btn_t:
+        run_tech = st.button("🛠️ Analyse", use_container_width=True,
+                             key="btn_tech", type="primary")
+
+    if run_tech:
+        if not tech_url:
+            st.error("Please enter a URL to analyse.")
+        else:
+            with st.spinner("Running technical audit…"):
+                tech_results = perform_seo_audit(tech_url)
+            if tech_results.get("error"):
+                st.error(f"❌ {tech_results['error']}")
+            elif not tech_results.get("accessible"):
+                st.error(
+                    f"❌ Page not accessible "
+                    f"(HTTP {tech_results.get('status_code', 'unknown')})"
+                )
+            else:
+                tech_score = calculate_seo_score(tech_results)
+                if tech_results not in st.session_state.audit_history:
+                    st.session_state.audit_history.append(tech_results)
+                send_audit_email(tech_results, tech_score)
+
+                # Show prioritised fix plan
+                total = tech_score["total"]
+                total_color = _score_color(total)
+                st.markdown(
+                    f"**SEO Health Score: "
+                    f"<span style='color:{total_color};font-size:1.3rem'>"
+                    f"{total}/100</span>**",
+                    unsafe_allow_html=True,
+                )
+
+                recs = generate_recommendations(tech_results)
+                critical = [r for r in recs if r.startswith("🔴")]
+                warnings  = [r for r in recs if r.startswith("🟡")]
+
+                if critical:
+                    st.markdown("#### 🔴 Critical — Fix Immediately")
+                    for r in critical:
+                        st.error(r.lstrip("🔴 "))
+                if warnings:
+                    st.markdown("#### 🟡 Recommended — Fix Soon")
+                    for r in warnings:
+                        st.warning(r.lstrip("🟡 "))
+                if not critical and not warnings:
+                    st.success(
+                        "🎉 No critical issues found. Your technical SEO is in great shape!"
+                    )
+
+                st.markdown("---")
+                st.markdown("**Full audit results:**")
+                display_results(tech_results, tech_score)
+
+# ── 4. HOW IT WORKS ───────────────────────────────────────────────────────────
+st.markdown("---")
+st.markdown('<p class="section-label">How It Works</p>', unsafe_allow_html=True)
+st.markdown(
+    """
+<div class="hiw-grid">
+  <div class="hiw-card">
+    <div class="hiw-num">1</div>
+    <div class="hiw-title">Enter Your URL</div>
+    <div class="hiw-body">Paste any webpage URL. No account or login required.</div>
+  </div>
+  <div class="hiw-card">
+    <div class="hiw-num">2</div>
+    <div class="hiw-title">We Analyse It</div>
+    <div class="hiw-body">15 SEO checks run instantly — technical, on-page, performance & links.</div>
+  </div>
+  <div class="hiw-card">
+    <div class="hiw-num">3</div>
+    <div class="hiw-title">Get Your Score</div>
+    <div class="hiw-body">Receive a 0–100 SEO health score with a visual breakdown by category.</div>
+  </div>
+  <div class="hiw-card">
+    <div class="hiw-num">4</div>
+    <div class="hiw-title">See the Fixes</div>
+    <div class="hiw-body">Prioritised recommendations tell you exactly what to change first.</div>
+  </div>
+  <div class="hiw-card">
+    <div class="hiw-num">5</div>
+    <div class="hiw-title">Project Revenue</div>
+    <div class="hiw-body">Enter your traffic &amp; conversion metrics to see the dollar impact.</div>
+  </div>
+  <div class="hiw-card">
+    <div class="hiw-num">6</div>
+    <div class="hiw-title">Get a Report</div>
+    <div class="hiw-body">Receive a full HTML report by email and export CSV/JSON data.</div>
+  </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+# ── 5. SOCIAL PROOF / STATS STRIP ─────────────────────────────────────────────
+st.markdown(
+    """
+<div class="proof-strip">
+  <div class="proof-item"><div class="proof-num">15+</div><div class="proof-lbl">SEO Checks</div></div>
+  <div class="proof-item"><div class="proof-num">Free</div><div class="proof-lbl">No Credit Card</div></div>
+  <div class="proof-item"><div class="proof-num">100%</div><div class="proof-lbl">Data Privacy</div></div>
+  <div class="proof-item"><div class="proof-num">A/B</div><div class="proof-lbl">Competitor Testing</div></div>
+  <div class="proof-item"><div class="proof-num">$ROI</div><div class="proof-lbl">Revenue Forecasting</div></div>
+  <div class="proof-item"><div class="proof-num">📧</div><div class="proof-lbl">Email Reports</div></div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+# ── 6. FOOTER (About ATI & AI + Contact) ─────────────────────────────────────
+st.markdown(
+    """
+<div class="app-footer">
+  <div class="footer-brand">🔍 ATI &amp; AI — Automated Technical Insights &amp; AI</div>
+  <div class="footer-links">
+    <a href="https://automatedtechnicalinsightsandai.github.io" target="_blank">🏠 Home</a>
+    <a href="https://automatedtechnicalinsightsandai.github.io/contact" target="_blank">📞 Contact</a>
+    <a href="https://automatedtechnicalinsightsandai.github.io/services" target="_blank">💼 Services</a>
+    <a href="https://www.linkedin.com/in/orlando-velazquez-borges/" target="_blank">🔗 LinkedIn</a>
+  </div>
+  <p style="margin:0.5rem 0 0;max-width:560px;margin-left:auto;margin-right:auto">
+    ATI &amp; AI bridges the gap between legacy infrastructure and modern intelligence.
+    We help businesses grow through data-driven SEO, payment optimisation, and
+    AI-powered technical strategy.
+  </p>
+  <p style="margin:0.8rem 0 0;color:rgba(255,255,255,0.4);font-size:0.75rem">
+    © 2026 Automated Technical Insights &amp; AI. All rights reserved.
+    &nbsp;·&nbsp; Admin tools available via the sidebar.
+  </p>
+</div>
+""",
+    unsafe_allow_html=True,
+)
